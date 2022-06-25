@@ -3,7 +3,7 @@ from os.path import isdir
 import tarfile
 import wget
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from torch import tensor
 from torchvision.datasets import ImageFolder
@@ -43,7 +43,7 @@ class MVTecDataset:
         self.test_ds = MVTecTestDataset(cls, size)
 
     def _download(self):
-        if not isdir(DATASETS_PATH / self.cls):
+        if not isdir(DATASETS_PATH / self.cls) and self.cls in mvtec_classes():
             print(f"   Could not find '{self.cls}' in '{DATASETS_PATH}/'. Downloading ... ")
             url = f"ftp://guest:GU.205dldo@ftp.softronics.ch/mvtec_anomaly_detection/{self.cls}.tar.xz"
             wget.download(url)
@@ -104,7 +104,13 @@ class MVTecTestDataset(ImageFolder):
         else:
             target_path = path.replace("test", "ground_truth")
             target_path = target_path.replace(".png", "_mask.png")
-            target = self.loader(target_path)
+            if os.path.exists(target_path):
+                target = self.loader(target_path)
+            else:
+                target = Image.new('L', (self.size, self.size))
+                # AUC エラーを回避するために白を含める
+                target_draw = ImageDraw.Draw(target)
+                target_draw.rectangle([(0, 0), (self.size//2, self.size//2)], fill=255)
             sample_class = 1
 
         if self.transform is not None:

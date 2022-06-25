@@ -70,7 +70,7 @@ def run_model(method: str, classes: List):
 
 @click.command()
 @click.argument("method")
-@click.option("--dataset", default="all", help="Dataset, defaults to all datasets.")
+@click.option("--dataset", default="hazelnut_reduced", help="Dataset")
 def cli_interface(method: str, dataset: str): 
     if dataset == "all":
         dataset = ALL_CLASSES

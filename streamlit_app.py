@@ -4,6 +4,7 @@ from streamlit.report_thread import REPORT_CONTEXT_ATTR_NAME
 from threading import current_thread
 import streamlit as st
 import sys
+import os
 from time import sleep
 
 from PIL import Image
@@ -20,10 +21,10 @@ from indad.data import IMAGENET_MEAN, IMAGENET_STD
 N_IMAGE_GALLERY = 4
 N_PREDICTIONS = 2
 METHODS = ["SPADE", "PaDiM", "PatchCore"]
-BACKBONES = ["efficientnet_b0", "tf_mobilenetv3_small_100"]
+BACKBONES = ["wide_resnet50_2", "efficientnet_b0", "tf_mobilenetv3_small_100"]
 
 # keep the two smallest datasets
-mvtec_classes = ["hazelnut_reduced", "transistor_reduced"]
+available_classes = os.listdir("./datasets")
 
 def tensor_to_img(x, normalize=False):
     if normalize:
@@ -93,7 +94,7 @@ def main():
         # null other elements
         app_mvtec_dataset = None
     else:
-        app_mvtec_dataset = st.sidebar.selectbox("Choose an MVTec dataset", mvtec_classes)
+        app_mvtec_dataset = st.sidebar.selectbox("Choose an MVTec dataset", available_classes)
         # null other elements
         app_custom_train_images = []
         app_custom_test_images = None
@@ -176,19 +177,18 @@ def main():
         if not st.session_state.reached_test_phase:
             if app_method == "SPADE":
                 model = SPADE(
-                    k=3,
+                    k=50,
                     backbone_name=app_backbone,
                 )
             elif app_method == "PaDiM":
                 model = PaDiM(
-                    d_reduced=75,
+                    d_reduced=350,
                     backbone_name=app_backbone,
                 )
             elif app_method == "PatchCore":
                 model = PatchCore(
-                    f_coreset=.01, 
+                    f_coreset=.10, 
                     backbone_name=app_backbone,
-                    coreset_eps=.95,
                 )
             st.success(f"Loaded {app_method} model.")
         else:
@@ -217,14 +217,17 @@ def main():
             max_value = len(test_dataset)-1,
         )
         
+        sample_path, *_ = test_dataset.samples[st.session_state.test_idx]
+        sample_label = os.path.basename(os.path.dirname(sample_path))
         sample, *_ = test_dataset[st.session_state.test_idx]
         img_lvl_anom_score, pxl_lvl_anom_score = model.predict(sample.unsqueeze(0))
         score_range = pxl_lvl_anom_score.min(), pxl_lvl_anom_score.max()
         if not manualRange:
             color_range = score_range
         show_pred(sample, img_lvl_anom_score, pxl_lvl_anom_score, color_range)
-        st.write("pixel score min:{:.0f}".format(score_range[0]))
-        st.write("pixel score max:{:.0f}".format(score_range[1]))
+        st.write(f"pixel score min:{score_range[0]:.0f}")
+        st.write(f"pixel score max:{score_range[1]:.0f}")
+        st.write(f"label: {sample_label}")
 
 @contextmanager
 def st_redirect(src, dst, msg):
