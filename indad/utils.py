@@ -7,7 +7,7 @@ import torch
 from torch import tensor
 from torchvision import transforms
 
-from PIL import ImageFilter
+from PIL import Image, ImageFilter
 from sklearn import random_projection
 
 TQDM_PARAMS = {
@@ -127,3 +127,25 @@ def serialize_results(results : dict) -> str:
         s = s + f"| {v[0]*100:.1f}  | {v[1]*100:.1f}  |"
         ans.append(s)
     return "\n".join(ans)
+
+def grid_split(image, idx=0, x_split=2, y_split=2, padding=0.05):
+    ix, iy = idx % x_split, idx // x_split
+
+    x_block_size = (1 - padding * (x_split - 1)) / x_split
+    y_block_size = (1 - padding * (y_split - 1)) / y_split
+
+    xmin = x_block_size * ix
+    xmax = x_block_size * (ix + 1) + padding
+    ymin = y_block_size * iy
+    ymax = y_block_size * (iy + 1) + padding
+
+    w, h = image.size
+    xmin, xmax = int(xmin * w), int(xmax * w)
+    ymin, ymax = int(ymin * h), int(ymax * h)
+    return image.crop((xmin, ymin, xmax, ymax))
+
+if __name__ == '__main__':
+    img = Image.open("example.jpeg").convert("RGB")
+    for i in range(4):
+        s = grid_split(img, i, padding=0.1)
+        s.save(f"split_{i}.png")

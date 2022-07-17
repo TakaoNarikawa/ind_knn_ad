@@ -1,3 +1,4 @@
+import json
 from typing import Tuple
 from tqdm import tqdm
 
@@ -6,11 +7,14 @@ from torch import tensor
 from torch.utils.data import DataLoader
 import timm
 
+import os
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
 from utils import GaussianBlur, get_coreset_idx_randomp, get_tqdm_params
 
+CACHE_DIR = "./cache"
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 class KNNExtractor(torch.nn.Module):
 	def __init__(
@@ -53,29 +57,41 @@ class KNNExtractor(torch.nn.Module):
 
 	def predict(self, _: tensor):
 		raise NotImplementedError
+	
+	def cache_feature_maps(self, path="", free_mem=False):
+		raise NotImplementedError
+
+	def restore_feature_maps(self, path=""):
+		raise NotImplementedError
 
 	def evaluate(self, test_dl: DataLoader) -> Tuple[float, float]:
 		"""Calls predict step for each test sample."""
 		image_preds = []
 		image_labels = []
-		pixel_preds = []
-		pixel_labels = []
+		# pixel_preds = []
+		# pixel_labels = []
 
-		for sample, mask, label in tqdm(test_dl, **get_tqdm_params()):
+		for sample, label in tqdm(test_dl, **get_tqdm_params()):
 			z_score, fmap = self.predict(sample)
 			
 			image_preds.append(z_score.numpy())
 			image_labels.append(label)
 			
-			pixel_preds.extend(fmap.flatten().numpy())
-			pixel_labels.extend(mask.flatten().numpy())
+			# pixel_preds.extend(fmap.flatten().numpy())
 			
 		image_preds = np.stack(image_preds)
-
 		image_rocauc = roc_auc_score(image_labels, image_preds)
-		pixel_rocauc = roc_auc_score(pixel_labels, pixel_preds)
+		# pixel_rocauc = roc_auc_score(pixel_labels, pixel_preds)
 
-		return image_rocauc, pixel_rocauc
+		# 推定結果の確認
+		if False:
+			ok_preds = [pred for pred, label in zip(image_preds, image_labels) if label.item() == 0]
+			ng_preds = [pred for pred, label in zip(image_preds, image_labels) if label.item() == 1]
+			print(f"[ok] max:{max(ok_preds)}, min:{min(ok_preds)}")
+			print(f"[ng] max:{max(ng_preds)}, min:{min(ng_preds)}")
+			print(f"[auc] {image_rocauc}")
+
+		return image_rocauc
 
 	def get_parameters(self, extra_params : dict = None) -> dict:
 		return {
@@ -244,14 +260,15 @@ class PatchCore(KNNExtractor):
 
 		self.patch_lib = []
 		self.resize = None
+		self.largest_fmap_size = None
 
 	def fit(self, train_dl):
 		for sample, _ in tqdm(train_dl, **get_tqdm_params()):
 			feature_maps = self(sample)
 
 			if self.resize is None:
-				largest_fmap_size = feature_maps[0].shape[-2:]
-				self.resize = torch.nn.AdaptiveAvgPool2d(largest_fmap_size)
+				self.largest_fmap_size = feature_maps[0].shape[-2:]
+				self.resize = torch.nn.AdaptiveAvgPool2d(self.largest_fmap_size)
 			resized_maps = [self.resize(self.average(fmap)) for fmap in feature_maps]
 			patch = torch.cat(resized_maps, 1)
 			patch = patch.reshape(patch.shape[1], -1).T
@@ -302,6 +319,19 @@ class PatchCore(KNNExtractor):
 
 		return s, s_map
 
+	def cache_feature_maps(self, path=os.path.join(CACHE_DIR, "patchcore_patch_lib"), free_mem=False):
+		torch.save(self.patch_lib, path + ".pt")
+		with open(path + ".json", mode='w') as f:
+			json.dump({"largest_fmap_size": self.largest_fmap_size}, f)
+		if free_mem:
+			del self.patch_lib
+
+	def restore_feature_maps(self, path=os.path.join(CACHE_DIR, "patchcore_patch_lib")):
+		self.patch_lib = torch.load(path + ".pt")
+		with open(path + ".json") as f:
+			params = json.load(f)
+		self.largest_fmap_size = params["largest_fmap_size"]
+		self.resize = torch.nn.AdaptiveAvgPool2d(self.largest_fmap_size)
 
 	def get_parameters(self):
 		return super().get_parameters({
