@@ -11,7 +11,7 @@ import os
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
-from utils import GaussianBlur, get_coreset_idx_randomp, get_tqdm_params
+from utils import GaussianBlur, get_coreset_idx_randomp, get_tqdm_params, norm_ppf, norm_cdf
 
 CACHE_DIR = "./cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -41,6 +41,8 @@ class KNNExtractor(torch.nn.Module):
 
 		self.device = "cuda" if torch.cuda.is_available() else "cpu"
 		self.feature_extractor = self.feature_extractor.to(self.device)
+
+		self.threshold = None
 			
 	def __call__(self, x: tensor):
 		with torch.no_grad():
@@ -63,6 +65,50 @@ class KNNExtractor(torch.nn.Module):
 
 	def restore_feature_maps(self, path=""):
 		raise NotImplementedError
+
+	def set_threshold(self, train_dl, valid_dl, determine_type=0):
+		ok_scores, ng_scores = [], []
+		for sample, _ in tqdm(train_dl, **get_tqdm_params()):
+			z_score, _ = self.predict(sample)
+			ok_scores.append(z_score.numpy())
+		for sample, label in tqdm(valid_dl, **get_tqdm_params()):
+			z_score, _ = self.predict(sample)
+			if label == 0:
+				ok_scores.append(z_score.numpy())
+			else:
+				ng_scores.append(z_score.numpy())
+		ok_scores, ng_scores = np.array(ok_scores), np.array(ng_scores)
+		ok_scores, ng_scores = ok_scores.reshape((-1,)), ng_scores.reshape((-1,))
+		ok_mu, ng_mu = ok_scores.mean(), ng_scores.mean()
+		ok_var, ng_var = ok_scores.var(ddof=1), ng_scores.var(ddof=1)
+
+		# 異常度が正規分布に従うと仮定して、
+		# OK分布の95%点をしきい値とする方法
+		if determine_type == 0:
+			ok_rate = 0.95
+			self.threshold = norm_ppf(ok_mu, ok_var, q=ok_rate)
+			ng_rate = norm_cdf(ng_mu, ng_var, x=self.threshold)
+
+		# OKサンプルの最大値をしきい値とする方法
+		if determine_type == 1:
+			ok_max = ok_scores.max()
+			self.threshold = ok_max
+			ok_rate = norm_cdf(ok_mu, ok_var, x=self.threshold)
+			ng_rate = norm_cdf(ng_mu, ng_var, x=self.threshold)
+
+		# OKサンプルの最大値とNGサンプルの最小値の平均をしきい値とする方法
+		if determine_type == 2:
+			ok_max = ok_scores.max()
+			ng_min = ng_scores.min()
+			self.threshold = (ok_max + ng_min) / 2
+			ok_rate = norm_cdf(ok_mu, ok_var, x=self.threshold)
+			ng_rate = norm_cdf(ng_mu, ng_var, x=self.threshold)
+
+		print(f"OK品の最大異常度：{ok_scores.max()}, NG品の最小異常度：{ng_scores.min()}")
+		print(f"しきい値：{self.threshold:.3f}")
+		print(f"\tposi\tnega")
+		print(f"True\t{ok_rate:.3f}\t{1-ok_rate:.3f}")
+		print(f"False\t{ng_rate:.3f}\t{1-ng_rate:.3f}")
 
 	def evaluate(self, test_dl: DataLoader) -> Tuple[float, float]:
 		"""Calls predict step for each test sample."""
@@ -181,19 +227,24 @@ class PaDiM(KNNExtractor):
 		self.image_size = 224
 		self.d_reduced = d_reduced # your RAM will thank you
 		self.epsilon = 0.04 # cov regularization
+
 		self.patch_lib = []
 		self.resize = None
+		self.largest_fmap_size = None
 
 	def fit(self, train_dl):
 		for sample, _ in tqdm(train_dl, **get_tqdm_params()):
 			feature_maps = self(sample)
 			if self.resize is None:
-				largest_fmap_size = feature_maps[0].shape[-2:]
-				self.resize = torch.nn.AdaptiveAvgPool2d(largest_fmap_size)
+				self.largest_fmap_size = feature_maps[0].shape[-2:]
+				self.resize = torch.nn.AdaptiveAvgPool2d(self.largest_fmap_size)
 			resized_maps = [self.resize(fmap) for fmap in feature_maps]
 			self.patch_lib.append(torch.cat(resized_maps, 1))
 		self.patch_lib = torch.cat(self.patch_lib, 0)
 
+		self.set_predict_params()
+
+	def set_predict_params(self):
 		# random projection
 		if self.patch_lib.shape[1] > self.d_reduced:
 			print(f"   PaDiM: (randomly) reducing {self.patch_lib.shape[1]} dimensions to {self.d_reduced}.")
@@ -232,6 +283,22 @@ class PaDiM(KNNExtractor):
 		)
 
 		return torch.max(s_map), scaled_s_map[0, ...]
+
+	def cache_feature_maps(self, path=os.path.join(CACHE_DIR, "padim_patch_lib"), free_mem=False):
+		torch.save(self.patch_lib, path + ".pt")
+		with open(path + ".json", mode='w') as f:
+			json.dump({"largest_fmap_size": self.largest_fmap_size, "threshold": self.threshold}, f)
+		if free_mem:
+			del self.patch_lib
+
+	def restore_feature_maps(self, path=os.path.join(CACHE_DIR, "padim_patch_lib")):
+		self.patch_lib = torch.load(path + ".pt")
+		with open(path + ".json") as f:
+			params = json.load(f)
+		self.largest_fmap_size = params["largest_fmap_size"]
+		self.resize = torch.nn.AdaptiveAvgPool2d(self.largest_fmap_size)
+		self.threshold = params["threshold"]
+		self.set_predict_params()
 
 	def get_parameters(self):
 		return super().get_parameters({
@@ -322,7 +389,7 @@ class PatchCore(KNNExtractor):
 	def cache_feature_maps(self, path=os.path.join(CACHE_DIR, "patchcore_patch_lib"), free_mem=False):
 		torch.save(self.patch_lib, path + ".pt")
 		with open(path + ".json", mode='w') as f:
-			json.dump({"largest_fmap_size": self.largest_fmap_size}, f)
+			json.dump({"largest_fmap_size": self.largest_fmap_size, "threshold": self.threshold}, f)
 		if free_mem:
 			del self.patch_lib
 
@@ -332,6 +399,7 @@ class PatchCore(KNNExtractor):
 			params = json.load(f)
 		self.largest_fmap_size = params["largest_fmap_size"]
 		self.resize = torch.nn.AdaptiveAvgPool2d(self.largest_fmap_size)
+		self.threshold = params["threshold"]
 
 	def get_parameters(self):
 		return super().get_parameters({

@@ -11,12 +11,15 @@ from models import CACHE_DIR, SPADE, PaDiM, PatchCore
 from utils import print_and_export_results
 from sklearn.model_selection import train_test_split
 from typing import List
+import torch.multiprocessing as mp
+from tqdm import tqdm
+import itertools
 
 # seeds
 import torch
+import threading
 import glob
 import random
-import itertools
 import numpy as np
 torch.manual_seed(0)
 random.seed(0)
@@ -65,19 +68,20 @@ class ADM:
     照明や分割を固定して
     1つのモデルと1つのデータセットを保持する
     '''
-    def __init__(self, train_paths, valid_paths=[], split_id=0, x_split=2, y_split=2, model_name="padim", img_size=256, adm_name='default'):
+    def __init__(self, train_paths, valid_paths=[], pattern_idx=0, split_idx=0, x_split=2, y_split=2, model_name="padim", img_size=256, adm_name='default'):
         
         assert model_name in ["spade", "padim", "patchcore"]
         self.name = adm_name
-        self.split_id = split_id
+        self.split_idx = split_idx
+        self.pattern_idx = pattern_idx
         
         self.cache_path = os.path.join(CACHE_DIR, f"adm_{self.name}")
-        self.dataset_params = dict(split_id=self.split_id, x_split=x_split, y_split=y_split, img_size=img_size)
+        self.dataset_params = dict(split_idx=self.split_idx, x_split=x_split, y_split=y_split, img_size=img_size)
         self.train_ds = CustomDataset(train_paths, **self.dataset_params)
         self.valid_ds = CustomDataset(valid_paths, **self.dataset_params)
 
-        self.train_dl = DataLoader(self.train_ds)
-        self.valid_dl = DataLoader(self.valid_ds, shuffle=True)
+        self.train_dl = DataLoader(self.train_ds, num_workers=0)
+        self.valid_dl = DataLoader(self.valid_ds, num_workers=0, shuffle=True)
 
         if model_name == "spade":
             self.model = SPADE(
@@ -94,9 +98,12 @@ class ADM:
                 f_coreset=.10, 
                 backbone_name="wide_resnet50_2",
             )
+
+        self.model.share_memory()
     
     def fit(self):
         self.model.fit(self.train_dl)
+        self.model.set_threshold(self.train_dl, self.valid_dl, determine_type=0)
         self.model.cache_feature_maps(path=self.cache_path)
 
     def restore(self):
@@ -119,17 +126,19 @@ class ADMM:
     "照明パターン×分割パターン"の数のADMを持つ
     入力には照明パターン数だけの画像が入る
     '''
-    def __init__(self, train_paths_list, valid_paths_list=None, x_split=2, y_split=2, model_name="spade", adm_prefix=""):
+    def __init__(self, train_paths_list, valid_paths_list=None, x_split=2, y_split=2, img_size=256, model_name="spade", adm_prefix=""):
         self.x_split = x_split
         self.y_split = y_split
 
         valid_paths_list = valid_paths_list or [[] for _ in train_paths_list]
         assert len(train_paths_list) == len(valid_paths_list), (len(train_paths_list), len(valid_paths_list))
 
+        self.num_patterns = len(train_paths_list)
+
         self.adms = [
             [
                 ADM(train_paths=train_paths, valid_paths=valid_paths, 
-                    split_id=j, x_split=self.x_split, y_split=self.y_split, 
+                    pattern_idx=i, split_idx=j, x_split=self.x_split, y_split=self.y_split, img_size=img_size,
                     model_name=model_name, adm_name=f'{adm_prefix}{i*self.x_split*self.y_split+j}')
                 for j in range(self.x_split*self.y_split)
             ]
@@ -140,6 +149,8 @@ class ADMM:
         self.run_each_adm(lambda adm: adm.fit())
     def restore(self):
         self.run_each_adm(lambda adm: adm.restore())
+    def set_threshold(self):
+        self.run_each_adm(lambda adm: adm.set_threshold())
 
     def evaluate(self):
         scores = []
@@ -149,19 +160,24 @@ class ADMM:
         self.run_each_adm(handler)
         return scores
 
+    def run_each_adm(self, callback):
+        for adm in itertools.chain.from_iterable(self.adms):
+            callback(adm)
+
     def predict(self, inputs):
         def handler(adm):
-            img_path = inputs[adm.split_id]
-            img_tns, _ = adm.valid_ds.getitem_base(img_path)
-            score, score_map = adm.predict(img_tns)
-            # print("out", adm.name, score.item())
-        
+            img_path = inputs[adm.pattern_idx]
+            img_tns, label = adm.valid_ds.getitem_base(img_path)
+            out, _ = adm.predict(img_tns)
+            
+            if adm.model.threshold is not None:
+                pred_label = 'OK' if out < adm.model.threshold else 'NG'
+            else:
+                pred_label = None
+            print('-'*5)
+            print(f"score: {out.item():.3} -> {pred_label}")
+            print(f"label: {['OK', 'NG'][label]}")
         self.run_each_adm(handler)
-
-    def run_each_adm(self, callback):
-        for adm_with_splits in self.adms:
-            for adm in adm_with_splits:
-                callback(adm)
 
 def run_model(method: str, classes: List):
     results = {}
@@ -196,7 +212,7 @@ def run_model(method: str, classes: List):
         print(  f"   │ Test results {cls} │ image_rocauc: {image_rocauc:.2f} │ pixel_rocauc: {pixel_rocauc:.2f} │")
         print(  f"   ╰{'─'*(len(cls)+15)}┴{'─'*20}┴{'─'*20}╯")
         results[cls] = [float(image_rocauc), float(pixel_rocauc)]
-        
+
     image_results = [v[0] for _, v in results.items()]
     average_image_roc_auc = sum(image_results)/len(image_results)
     image_results = [v[1] for _, v in results.items()]
@@ -232,7 +248,7 @@ if __name__ == "__main__":
     # ADM作成
     if False:
         train_paths, valid_paths = get_train_valid_img_paths("Folder", "Side", 100)
-        adm = ADM(train_paths=train_paths, valid_paths=valid_paths, split_id=0, x_split=2, y_split=2, model_name="patchcore")
+        adm = ADM(train_paths=train_paths, valid_paths=valid_paths, split_idx=0, x_split=2, y_split=2, model_name="patchcore")
         adm.fit()
         adm.evaluate()
 
@@ -243,10 +259,12 @@ if __name__ == "__main__":
         train_valid_paths_list = train_valid_paths_list + train_valid_paths_list + train_valid_paths_list # 数を増やしてデバッグ
         train_paths_list = [p[0] for p in train_valid_paths_list]
         valid_paths_list = [p[1] for p in train_valid_paths_list]
-        admm = ADMM(train_paths_list, valid_paths_list=valid_paths_list, model_name="patchcore", adm_prefix=f"{cls}_{angle}_")
-        # admm.fit()
-        admm.restore()
-        valid_img_paths = [v[0] for v in valid_paths_list]
+        admm = ADMM(train_paths_list, valid_paths_list=valid_paths_list, 
+                    model_name="padim", adm_prefix=f"{cls}_{angle}_",
+                    x_split=1, y_split=1, img_size=256)
+        admm.fit()
+        # admm.restore()
+        valid_img_paths = [random.choice(v) for v in valid_paths_list]
 
         elapsed_times = []
         all_start = time.time()
@@ -256,11 +274,10 @@ if __name__ == "__main__":
             admm.predict(valid_img_paths)
             elapsed_times.append(time.time() - start)
         elapsed_times = np.array(elapsed_times)
-        print (f"[elapsed_time] mean:{elapsed_times.mean()}, std:{elapsed_times.std()} "
-               + f"max:{elapsed_times.max()}, min:{elapsed_times.min()} all:{time.time() - all_start}")
+        print (f"[elapsed_time] mean:{elapsed_times.mean()}, std:{elapsed_times.std()}, "
+               + f"max:{elapsed_times.max()}, min:{elapsed_times.min()}, all:{time.time() - all_start}")
         scores = admm.evaluate()
         scores = np.array(scores)
-        print(scores)
         print (f"[auc] mean:{scores.mean()}, "
                + f"max:{scores.max()}, min:{scores.min()}")
 

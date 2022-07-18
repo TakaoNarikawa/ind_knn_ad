@@ -49,6 +49,14 @@ elif app_method == "PatchCore":
     )
 ```
 
+```
+ps aux | grep 'python3 indad/run.py' | grep -v grep | awk '{ print "kill -9", $2 }' | sh
+
+ps aux | grep '/home/gecs/anaconda3/envs/ind_knn_ad/bin/python3 /home/gecs/Code/Ohnuma/ind_knn_ad/indad/sub_server.py' | grep -v grep | awk '{ print "kill -9", $2 }' | sh
+
+
+```
+
 # オリジナル README
 
 ⭐Now has streamlit support!⭐ Run `$ streamlit run streamlit_app.py`

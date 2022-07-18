@@ -8,6 +8,7 @@ from torch import tensor
 from torchvision import transforms
 
 from PIL import Image, ImageFilter
+from scipy.stats import norm
 from sklearn import random_projection
 
 TQDM_PARAMS = {
@@ -144,8 +145,8 @@ def grid_split(image, idx=0, x_split=2, y_split=2, padding=0.05):
     ymin, ymax = int(ymin * h), int(ymax * h)
     return image.crop((xmin, ymin, xmax, ymax))
 
-if __name__ == '__main__':
-    img = Image.open("example.jpeg").convert("RGB")
-    for i in range(4):
-        s = grid_split(img, i, padding=0.1)
-        s.save(f"split_{i}.png")
+def norm_ppf(mu, var, q=0.95):
+    return norm.ppf(q=q, loc=mu, scale=var**0.5)
+
+def norm_cdf(mu, var, x):
+    return norm.cdf(x=x, loc=mu, scale=var)

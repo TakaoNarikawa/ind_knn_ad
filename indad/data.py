@@ -66,10 +66,10 @@ class MVTecDataset:
         return DataLoader(self.train_ds), DataLoader(self.test_ds)
 
 class CustomDataset(Dataset):
-    def __init__(self, paths, split_id: int, x_split: int, y_split: int, padding=0.05, img_size=256):
+    def __init__(self, paths, split_idx: int, x_split: int, y_split: int, padding=0.05, img_size=256):
         super().__init__()
         
-        self.split_id = split_id
+        self.split_idx = split_idx
         self.x_split = x_split
         self.y_split = y_split
         self.padding = padding
@@ -91,7 +91,7 @@ class CustomDataset(Dataset):
     
     def getitem_base(self, img_path):
         img = Image.open(img_path).convert("RGB")
-        img = utils.grid_split(img, idx=self.split_id, x_split=self.x_split, y_split=self.y_split, padding=self.padding)
+        img = utils.grid_split(img, idx=self.split_idx, x_split=self.x_split, y_split=self.y_split, padding=self.padding)
         img = self.transforms(img)
         
         if "ok" in img_path:
@@ -191,11 +191,11 @@ if __name__ == "__main__":
     cls = "Folder"
     angle = "Front"
     light = 100
-    split_id = 3
+    split_idx = 3
     x_split = 2
     y_split = 2
     
-    test_dataset = CustomDataset(dataset_dir, cls, angle, light, split_id, x_split, y_split)
+    test_dataset = CustomDataset(dataset_dir, cls, angle, light, split_idx, x_split, y_split)
     #print(test_dataset.__len__())
     items = test_dataset.__getitem__(0)
     #print(items[2])
