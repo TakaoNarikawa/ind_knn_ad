@@ -85,7 +85,7 @@ class KNNExtractor(torch.nn.Module):
 		# 異常度が正規分布に従うと仮定して、
 		# OK分布の95%点をしきい値とする方法
 		if determine_type == 0:
-			ok_rate = 0.95
+			ok_rate = 0.99
 			self.threshold = norm_ppf(ok_mu, ok_var, q=ok_rate)
 			ng_rate = norm_cdf(ng_mu, ng_var, x=self.threshold)
 

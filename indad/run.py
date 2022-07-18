@@ -28,7 +28,6 @@ np.random.seed(0)
 import warnings # for some torch warnings regarding depreciation
 warnings.filterwarnings("ignore")
 
-ALL_CLASSES = mvtec_classes()
 ALLOWED_METHODS = ["spade", "padim", "patchcore"]
 DATASET_DIR = "/home/gecs/datasets/Xstamper_data"
 
@@ -225,26 +224,8 @@ def run_model(method: str, classes: List):
         "model parameters": model.get_parameters(),
     }
     return total_results
-
-@click.command()
-@click.argument("method")
-@click.option("--dataset", default="hazelnut_reduced", help="Dataset")
-def cli_interface(method: str, dataset: str): 
-    if dataset == "all":
-        dataset = ALL_CLASSES
-    else:
-        dataset = [dataset]
-
-    method = method.lower()
-    assert method in ALLOWED_METHODS, f"Select from {ALLOWED_METHODS}."
-
-    total_results = run_model(method, dataset)
-
-    print_and_export_results(total_results, method)
     
 if __name__ == "__main__":
-    #cli_interface()
-    
     # ADM作成
     if False:
         train_paths, valid_paths = get_train_valid_img_paths("Folder", "Side", 100)
@@ -262,20 +243,28 @@ if __name__ == "__main__":
         admm = ADMM(train_paths_list, valid_paths_list=valid_paths_list, 
                     model_name="padim", adm_prefix=f"{cls}_{angle}_",
                     x_split=1, y_split=1, img_size=256)
+        
+        # NOTE: モデルの初期化
+        # 初回は .fit() を行い、以前のものを使い回すなら .restore()
         admm.fit()
         # admm.restore()
+
+        # NOTE: 推論に用いる入力データ
+        # 学習時に用意した順番で入力画像のパスを用意する
+        # 例: [照明パターン1の画像パス, 照明パターン2の画像パス, 照明パターン3の画像パス]
         valid_img_paths = [random.choice(v) for v in valid_paths_list]
-
+        
+        # NOTE: 処理時間の計測
         elapsed_times = []
-        all_start = time.time()
-
-        for _ in range(10):
+        for _ in range(1):
             start = time.time()
             admm.predict(valid_img_paths)
             elapsed_times.append(time.time() - start)
         elapsed_times = np.array(elapsed_times)
+
         print (f"[elapsed_time] mean:{elapsed_times.mean()}, std:{elapsed_times.std()}, "
-               + f"max:{elapsed_times.max()}, min:{elapsed_times.min()}, all:{time.time() - all_start}")
+               + f"max:{elapsed_times.max()}, min:{elapsed_times.min()}")
+
         scores = admm.evaluate()
         scores = np.array(scores)
         print (f"[auc] mean:{scores.mean()}, "
