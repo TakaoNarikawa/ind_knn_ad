@@ -1,14 +1,19 @@
+import glob
 import os
-from os.path import isdir
+from random import sample
 import tarfile
-import wget
+from configparser import Interpolation
+from os.path import isdir
 from pathlib import Path
-from PIL import Image, ImageDraw
+from typing import Type
 
+import wget
+import utils
+from PIL import Image, ImageDraw
 from torch import tensor
-from torchvision.datasets import ImageFolder
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
-from torch.utils.data import DataLoader
+from torchvision.datasets import ImageFolder
 
 DATASETS_PATH = Path("./datasets")
 IMAGENET_MEAN = tensor([.485, .456, .406])
@@ -59,6 +64,43 @@ class MVTecDataset:
 
     def get_dataloaders(self):
         return DataLoader(self.train_ds), DataLoader(self.test_ds)
+
+class CustomDataset(Dataset):
+    def __init__(self, paths, split_idx: int, x_split: int, y_split: int, padding=0.05, img_size=256):
+        super().__init__()
+        
+        self.split_idx = split_idx
+        self.x_split = x_split
+        self.y_split = y_split
+        self.padding = padding
+
+        self.img_paths = paths
+
+        self.transforms = transforms.Compose([
+            transforms.Resize(img_size, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.ToTensor(),  
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+        ])
+
+    def __len__(self):
+        return len(self.img_paths)
+
+    def __getitem__(self, index):
+        img_path = self.img_paths[index]
+        return self.getitem_base(img_path)
+    
+    def getitem_base(self, img_path):
+        img = Image.open(img_path).convert("RGB")
+        img = utils.grid_split(img, idx=self.split_idx, x_split=self.x_split, y_split=self.y_split, padding=self.padding)
+        img = self.transforms(img)
+        
+        if "ok" in img_path:
+            sample_class = 0
+        else:
+            sample_class = 1
+
+        return img, sample_class
+
 
 class MVTecTrainDataset(ImageFolder):
     def __init__(self, cls : str, size : int):
@@ -142,3 +184,18 @@ class StreamingDataset:
     def __getitem__(self, index):
         sample = self.samples[index]
         return (self.transform(sample), tensor(0.))
+
+# test
+if __name__ == "__main__":
+    dataset_dir = "/home/gecs/Downloads/Xstamper_data"
+    cls = "Folder"
+    angle = "Front"
+    light = 100
+    split_idx = 3
+    x_split = 2
+    y_split = 2
+    
+    test_dataset = CustomDataset(dataset_dir, cls, angle, light, split_idx, x_split, y_split)
+    #print(test_dataset.__len__())
+    items = test_dataset.__getitem__(0)
+    #print(items[2])
