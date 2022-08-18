@@ -105,12 +105,17 @@ def main():
     app_backbone = st.sidebar.selectbox("Choose a backbone",
         BACKBONES)
 
-    manualRange = st.sidebar.checkbox('Manually set color range', value=False) 
+    app_threshold = None
+
+    manual_color_range = st.sidebar.checkbox('Manually set color range', value=False) 
+    manual_threshold = st.sidebar.checkbox('Manually set threshold', value=False) 
     
-    if manualRange:
+    if manual_color_range:
         app_color_min = st.sidebar.number_input("set color min ",-1000,1000, 0)
         app_color_max = st.sidebar.number_input("set color max ",-1000,1000, 200)   
         color_range = app_color_min, app_color_max
+    if manual_threshold:
+        app_threshold = st.sidebar.number_input("set color min ",0,200, 30)
 
     app_start = st.sidebar.button("Start")
 
@@ -222,12 +227,14 @@ def main():
         sample, *_ = test_dataset[st.session_state.test_idx]
         img_lvl_anom_score, pxl_lvl_anom_score = model.predict(sample.unsqueeze(0))
         score_range = pxl_lvl_anom_score.min(), pxl_lvl_anom_score.max()
-        if not manualRange:
+        if not manual_color_range:
             color_range = score_range
         show_pred(sample, img_lvl_anom_score, pxl_lvl_anom_score, color_range)
         st.write(f"pixel score min:{score_range[0]:.0f}")
         st.write(f"pixel score max:{score_range[1]:.0f}")
         st.write(f"label: {sample_label}")
+        if app_threshold:
+            st.write(f"pred label: {'OK' if score_range[1].item() < app_threshold else 'NG'}")
 
 @contextmanager
 def st_redirect(src, dst, msg):
