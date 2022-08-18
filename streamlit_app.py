@@ -108,14 +108,14 @@ def main():
     app_threshold = None
 
     manual_color_range = st.sidebar.checkbox('Manually set color range', value=False) 
-    manual_threshold = st.sidebar.checkbox('Manually set threshold', value=False) 
+    manual_threshold = st.sidebar.checkbox('しきい値を手動で設定', value=False) 
     
     if manual_color_range:
         app_color_min = st.sidebar.number_input("set color min ",-1000,1000, 0)
         app_color_max = st.sidebar.number_input("set color max ",-1000,1000, 200)   
         color_range = app_color_min, app_color_max
     if manual_threshold:
-        app_threshold = st.sidebar.number_input("set color min ",0,200, 30)
+        app_threshold = st.sidebar.number_input("しきい値",0,200, 30)
 
     app_start = st.sidebar.button("Start")
 
