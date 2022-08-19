@@ -237,12 +237,11 @@ if __name__ == "__main__":
     if True:
         cls, angle = "Folder", "Side"
         train_valid_paths_list = [get_train_valid_img_paths(cls, angle, light) for light in get_light_patterns(cls, angle)]
-        train_valid_paths_list = train_valid_paths_list + train_valid_paths_list + train_valid_paths_list # 数を増やしてデバッグ
         train_paths_list = [p[0] for p in train_valid_paths_list]
         valid_paths_list = [p[1] for p in train_valid_paths_list]
         admm = ADMM(train_paths_list, valid_paths_list=valid_paths_list, 
                     model_name="patchcore", adm_prefix=f"{cls}_{angle}_",
-                    x_split=4, y_split=4, img_size=256)
+                    x_split=1, y_split=1, img_size=128)
         
         # NOTE: モデルの初期化
         # 初回は .fit() を行い、以前のものを使い回すなら .restore()
