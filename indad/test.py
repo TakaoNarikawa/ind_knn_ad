@@ -50,18 +50,20 @@ def get_custom_datasets(dataset_dir: str, classes: List, x_split: int, y_split: 
         for angle in get_angle_patterns(cls):
             for light in get_light_patterns(cls, angle):
                 for split_index in range(x_split*y_split):
-                    glob_path = os.path.join(dataset_dir, cls, angle, f"*/*{light}.png")
+                    glob_path = os.path.join(dataset_dir, cls, angle, "*", f"*{light}.png")
                     datasets.append(CustomDataset(glob_path=glob_path, split_index=split_index, x_split=x_split, y_split=y_split))
 
     return datasets
 
 def get_train_valid_img_paths(cls, angle, light, test_size=0.1):
-    glob_path = os.path.join(DATASET_DIR, cls, angle, f"ok*/*{light}.png")
+    glob_path = os.path.join(DATASET_DIR, cls, angle, "ok*", f"*{light}.png")
     train_paths, valid_ok_paths = train_test_split(glob.glob(glob_path), test_size=test_size)
-    valid_ng_paths = glob.glob(glob_path.replace("/ok*/", "/ng*/"))
+    valid_ng_paths = glob.glob(
+        glob_path.replace("/ok*/", "/ng*/")
+                 .replace("\\ok*\\", "\\ng*\\") # windows 用
+    )
     valid_paths = list(valid_ok_paths) + list(valid_ng_paths)
 
-    return list(train_paths), list(valid_paths)
 
 def run_model(method: str, classes: List):
     results = {}
