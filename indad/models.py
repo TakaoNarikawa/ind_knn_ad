@@ -104,7 +104,7 @@ class KNNExtractor(torch.nn.Module):
 			ok_rate = norm_cdf(ok_mu, ok_var, x=self.threshold)
 			ng_rate = norm_cdf(ng_mu, ng_var, x=self.threshold)
 
-		print(f"OK品の最大異常度：{ok_scores.max()}, NG品の最小異常度：{ng_scores.min()}")
+		print(f"OK品の最大異常度：{ok_scores.max()}, NG品の最小異常度：{ng_scores.min() if len(ng_scores) > 0 else 'なし'}")
 		print(f"しきい値：{self.threshold:.3f}")
 		print(f"\tposi\tnega")
 		print(f"True\t{ok_rate:.3f}\t{1-ok_rate:.3f}")

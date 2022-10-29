@@ -6,6 +6,7 @@ from configparser import Interpolation
 from os.path import isdir
 from pathlib import Path
 from typing import Type
+import numpy as np
 
 import wget
 import utils
@@ -88,11 +89,10 @@ class CustomDataset(Dataset):
     def __getitem__(self, index):
         img_path = self.img_paths[index]
         return self.getitem_base(img_path)
+
     
     def getitem_base(self, img_path):
-        img = Image.open(img_path).convert("RGB")
-        img = utils.grid_split(img, idx=self.split_idx, x_split=self.x_split, y_split=self.y_split, padding=self.padding)
-        img = self.transforms(img)
+        img = self.img2tns(img_path)
         
         if "ok" in img_path:
             sample_class = 0
@@ -100,6 +100,20 @@ class CustomDataset(Dataset):
             sample_class = 1
 
         return img, sample_class
+
+    def img2tns(self, img_src):
+        if type(img_src) is str:
+            img = Image.open(img_src)
+        elif isinstance(img_src, Image.Image):
+            img = img_src
+        elif isinstance(img_src, np.ndarray):
+            img = Image.fromarray(img_src)
+        else:
+            raise NotImplementedError()
+        img = img.convert("RGB")
+        img = utils.grid_split(img, idx=self.split_idx, x_split=self.x_split, y_split=self.y_split, padding=self.padding)
+        img = self.transforms(img)
+        return img
 
 
 class MVTecTrainDataset(ImageFolder):
