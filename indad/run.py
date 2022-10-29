@@ -7,6 +7,8 @@ from models import CACHE_DIR, SPADE, PaDiM, PatchCore
 from sklearn.model_selection import train_test_split
 from typing import List
 import itertools
+import utils
+import datetime
 
 # seeds
 import torch
@@ -70,6 +72,9 @@ class ADM:
         self.name = adm_name
         self.split_idx = split_idx
         self.pattern_idx = pattern_idx
+
+        # ./result に結果を保存するためだけに使用
+        self.dataset_dir = os.path.dirname(os.path.dirname(train_paths[0]))
         
         self.cache_path = os.path.join(CACHE_DIR, f"adm_{self.name}")
         self.dataset_params = dict(split_idx=self.split_idx, x_split=x_split, y_split=y_split, img_size=img_size)
@@ -162,13 +167,14 @@ class ADMM:
         for adm in itertools.chain.from_iterable(self.adms):
             callback(adm)
 
-    def predict(self, inputs):
+    def predict(self, inputs, save_dir=None):
         preds = []
         pred_labels = []
         def handler(adm):
             img_src = inputs[adm.pattern_idx]
+            img_pil = adm.valid_ds.img2pil(img_src)
             img_tns = adm.valid_ds.img2tns(img_src)
-            out, _ = adm.predict(img_tns)
+            out, s_map = adm.predict(img_tns)
 
             pred = (out < adm.model.threshold).item() if adm.model.threshold is not None else None
             pred_label = ('OK' if pred else 'NG') if pred is not None else None
@@ -182,6 +188,14 @@ class ADMM:
             
             preds.append(pred)
             pred_labels.append(pred_label)
+
+            # ファイルに保存
+            if save_dir:
+                preview = utils.fmap_to_img(img_pil.resize(s_map.shape[1:]), s_map)
+                save_path = os.path.join(save_dir, adm.dataset_dir, str(pred_label), f"{datetime.datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}.png")
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                preview.save(save_path)
+
 
         self.run_each_adm(handler)
         return preds, pred_labels
@@ -244,7 +258,7 @@ if __name__ == "__main__":
         np.array(Image.open("./datasets/dataset_2022_10_28/holder/A/front/02_LED3/ng/000.png"))
     ]
 
-    preds, pred_labels = admm.predict(inputs)
+    preds, pred_labels = admm.predict(inputs, save_dir='./result')
     print(preds) # [False, True, False]
     print(pred_labels) # ['NG', 'OK', 'NG']
 

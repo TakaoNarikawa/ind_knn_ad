@@ -4,11 +4,14 @@ from tqdm import tqdm
 from datetime import datetime
 
 import torch
+import numpy as np
 from torch import tensor
 from torchvision import transforms
 
 from PIL import Image, ImageFilter
 from scipy.stats import norm
+import io
+import matplotlib.pyplot as plt
 from sklearn import random_projection
 
 TQDM_PARAMS = {
@@ -150,3 +153,29 @@ def norm_ppf(mu, var, q=0.95):
 
 def norm_cdf(mu, var, x):
     return norm.cdf(x=x, loc=mu, scale=var)
+
+
+def fmap_to_img(img, fmap, value_range=None):
+    if value_range is None:
+        value_range = (fmap.min(), fmap.max())
+    fmap = pred_to_img(fmap, value_range)
+    plt.imshow(np.array(img))
+    plt.imshow(fmap, cmap="jet", alpha=0.5)
+    plt.axis('off')
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0, transparent=True)
+    buf.seek(0)
+    return Image.open(buf)
+
+def pred_to_img(x, value_range):
+    range_min, range_max = value_range
+    x -= range_min
+    if (range_max - range_min) > 0:
+        x /= (range_max - range_min)
+    return tensor_to_img(x)
+def tensor_to_img(x, normalize=False):
+    if normalize:
+        x *= tensor([.229, .224, .225]).unsqueeze(-1).unsqueeze(-1)
+        x += tensor([.485, .456, .406]).unsqueeze(-1).unsqueeze(-1)
+    x =  x.clip(0.,1.).permute(1,2,0).detach().numpy()
+    return x

@@ -102,6 +102,11 @@ class CustomDataset(Dataset):
         return img, sample_class
 
     def img2tns(self, img_src):
+        img = self.img2pil(img_src)
+        img = utils.grid_split(img, idx=self.split_idx, x_split=self.x_split, y_split=self.y_split, padding=self.padding)
+        img = self.transforms(img)
+        return img
+    def img2pil(self, img_src):
         if type(img_src) is str:
             img = Image.open(img_src)
         elif isinstance(img_src, Image.Image):
@@ -110,10 +115,7 @@ class CustomDataset(Dataset):
             img = Image.fromarray(img_src)
         else:
             raise NotImplementedError()
-        img = img.convert("RGB")
-        img = utils.grid_split(img, idx=self.split_idx, x_split=self.x_split, y_split=self.y_split, padding=self.padding)
-        img = self.transforms(img)
-        return img
+        return img.convert("RGB")
 
 
 class MVTecTrainDataset(ImageFolder):
