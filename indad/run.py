@@ -247,20 +247,76 @@ class ADMM:
             admm.evaluate()
         return admm
 
+
+class ADMMM:
+    '''
+    複数のADMMを保持する
+    '''
+    def __init__(self, admms):
+        self.admms = admms
+
+    def predict(self, inputs_list, flatten=False, **kwargs):
+        preds = []
+        pred_labels = []
+
+        assert len(self.admms) == len(inputs_list)
+        for admm, inputs in zip(self.admms, inputs_list):
+            pred, pred_label = admm.predict(inputs, **kwargs)
+            preds.append(pred)
+            pred_labels.append(pred_label)
+        if flatten:
+            return flat_list(preds), flat_list(pred_labels)
+        return preds, pred_labels
+    
+def flat_list(l):
+    return list(itertools.chain.from_iterable(l))
+
+
 if __name__ == "__main__":
-    # ADMM で使用するディレクトリ名を与えます
-    admm = ADMM.from_dirpath("./datasets/dataset_2022_10_28/holder/A/front", 
-                model_name="patchcore", x_split=1, y_split=1, img_size=128, evaluate=False)
-    # 入力は 画像パス, PillowImage, Numpy配列 のいずれかで与えてください
-    inputs = [
-        "./datasets/dataset_2022_10_28/holder/A/front/00_LED1/ng/000.png",
-        Image.open("./datasets/dataset_2022_10_28/holder/A/front/01_LED2/ok/000.png"),
-        np.array(Image.open("./datasets/dataset_2022_10_28/holder/A/front/02_LED3/ng/000.png"))
-    ]
+    if False:
+        # ADMM で使用するディレクトリ名を与えます
+        admm = ADMM.from_dirpath("./datasets/dataset_2022_10_28/holder/A/front", 
+                    model_name="patchcore", x_split=1, y_split=1, img_size=128, evaluate=False)
+        # 入力は 画像パス, PillowImage, Numpy配列 のいずれかで与えてください
+        inputs = [
+            "./datasets/dataset_2022_10_28/holder/A/front/00_LED1/ng/000.png",
+            Image.open("./datasets/dataset_2022_10_28/holder/A/front/01_LED2/ok/000.png"),
+            np.array(Image.open("./datasets/dataset_2022_10_28/holder/A/front/02_LED3/ng/000.png"))
+        ]
 
-    preds, pred_labels = admm.predict(inputs, save_dir='./result')
-    print(preds) # [False, True, False]
-    print(pred_labels) # ['NG', 'OK', 'NG']
+        preds, pred_labels = admm.predict(inputs, save_dir='./result')
+        print(preds) # [False, True, False]
+        print(pred_labels) # ['NG', 'OK', 'NG']
 
-    result = all(preds)
-    print(result) # False
+        result = all(preds)
+        print(result) # False
+        
+    if True:
+        # ADMM で使用するディレクトリ名を与えます
+        admmm = ADMMM([
+            ADMM.from_dirpath("./datasets/dataset_2022_10_28/holder/A/front", 
+                    model_name="patchcore", x_split=1, y_split=1, img_size=128, evaluate=False),
+            ADMM.from_dirpath("./datasets/dataset_2022_10_28/holder/A/side", 
+                    model_name="patchcore", x_split=1, y_split=1, img_size=128, evaluate=False)
+        ])
+        # 入力は 画像パス, PillowImage, Numpy配列 のいずれかで与えてください
+        inputs = [
+            [
+                "./datasets/dataset_2022_10_28/holder/A/front/00_LED1/ng/000.png",
+                Image.open("./datasets/dataset_2022_10_28/holder/A/front/01_LED2/ok/000.png"),
+                np.array(Image.open("./datasets/dataset_2022_10_28/holder/A/front/02_LED3/ng/000.png"))
+            ],
+            [
+                Image.open("./datasets/dataset_2022_10_28/holder/A/side/00_LED1/ok/000.png"),
+                np.array(Image.open("./datasets/dataset_2022_10_28/holder/A/side/01_LED4/ng/000.png"))
+            ]
+        ]
+
+        preds, pred_labels = admmm.predict(inputs, save_dir='./result')
+        print(preds) # [[False, True, False], [True, False]]
+        print(pred_labels) # [['NG', 'OK', 'NG'], ['OK', 'NG']]
+
+        # 結果を全部まとめるにま flatten=True を指定して all を取ります
+        preds, pred_labels = admmm.predict(inputs, flatten=True, save_dir='./result')
+        result = all(preds)
+        print(result) # False
